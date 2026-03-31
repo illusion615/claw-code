@@ -15,9 +15,9 @@ use commands::{handle_slash_command, render_slash_command_help, SlashCommand};
 use compat_harness::{extract_manifest, UpstreamPaths};
 use render::{Spinner, TerminalRenderer};
 use runtime::{
-    load_system_prompt, ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ContentBlock,
-    ConversationMessage, ConversationRuntime, MessageRole, PermissionMode, PermissionPolicy,
-    RuntimeError, Session, TokenUsage, ToolError, ToolExecutor,
+    load_system_prompt, ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ConfigLoader,
+    ConfigSource, ContentBlock, ConversationMessage, ConversationRuntime, MessageRole,
+    PermissionMode, PermissionPolicy, RuntimeError, Session, TokenUsage, ToolError, ToolExecutor,
 };
 use tools::{execute_tool, mvp_tool_specs};
 
@@ -326,6 +326,8 @@ impl LiveCli {
             SlashCommand::Permissions { mode } => self.set_permissions(mode)?,
             SlashCommand::Clear => self.clear_session()?,
             SlashCommand::Cost => self.print_cost(),
+            SlashCommand::Resume { session_path } => self.resume_session(session_path)?,
+            SlashCommand::Config => Self::print_config()?,
             SlashCommand::Unknown(name) => eprintln!("unknown slash command: /{name}"),
         }
         Ok(())
@@ -417,6 +419,60 @@ impl LiveCli {
             cumulative.cache_read_input_tokens,
             cumulative.total_tokens(),
         );
+    }
+
+    fn resume_session(
+        &mut self,
+        session_path: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(session_path) = session_path else {
+            println!("Usage: /resume <session-path>");
+            return Ok(());
+        };
+
+        let session = Session::load_from_path(&session_path)?;
+        let message_count = session.messages.len();
+        self.runtime = build_runtime_with_permission_mode(
+            session,
+            self.model.clone(),
+            self.system_prompt.clone(),
+            true,
+            permission_mode_label(),
+        )?;
+        println!("Resumed session from {session_path} ({message_count} messages).");
+        Ok(())
+    }
+
+    fn print_config() -> Result<(), Box<dyn std::error::Error>> {
+        let cwd = env::current_dir()?;
+        let loader = ConfigLoader::default_for(&cwd);
+        let discovered = loader.discover();
+        let runtime_config = loader.load()?;
+
+        println!(
+            "config: loaded_files={} merged_keys={}",
+            runtime_config.loaded_entries().len(),
+            runtime_config.merged().len()
+        );
+        for entry in discovered {
+            let source = match entry.source {
+                ConfigSource::User => "user",
+                ConfigSource::Project => "project",
+                ConfigSource::Local => "local",
+            };
+            let status = if runtime_config
+                .loaded_entries()
+                .iter()
+                .any(|loaded_entry| loaded_entry.path == entry.path)
+            {
+                "loaded"
+            } else {
+                "missing"
+            };
+            println!("  {source:<7} {status:<7} {}", entry.path.display());
+        }
+        println!("  merged   {}", runtime_config.as_json().render());
+        Ok(())
     }
 
     fn compact(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -798,7 +854,7 @@ fn print_help() {
 mod tests {
     use super::{
         format_status_line, normalize_permission_mode, parse_args, render_repl_help, CliAction,
-        DEFAULT_MODEL,
+        SlashCommand, DEFAULT_MODEL,
     };
     use runtime::{ContentBlock, ConversationMessage, MessageRole};
     use std::path::PathBuf;
@@ -872,6 +928,8 @@ mod tests {
         assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
         assert!(help.contains("/clear"));
         assert!(help.contains("/cost"));
+        assert!(help.contains("/resume <session-path>"));
+        assert!(help.contains("/config"));
         assert!(help.contains("/exit"));
     }
 
@@ -915,6 +973,17 @@ mod tests {
             Some("danger-full-access")
         );
         assert_eq!(normalize_permission_mode("unknown"), None);
+    }
+
+    #[test]
+    fn parses_resume_and_config_slash_commands() {
+        assert_eq!(
+            SlashCommand::parse("/resume saved-session.json"),
+            Some(SlashCommand::Resume {
+                session_path: Some("saved-session.json".to_string())
+            })
+        );
+        assert_eq!(SlashCommand::parse("/config"), Some(SlashCommand::Config));
     }
 
     #[test]

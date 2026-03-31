@@ -73,6 +73,16 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         summary: "Show cumulative token usage for this session",
         argument_hint: None,
     },
+    SlashCommandSpec {
+        name: "resume",
+        summary: "Load a saved session into the REPL",
+        argument_hint: Some("<session-path>"),
+    },
+    SlashCommandSpec {
+        name: "config",
+        summary: "Inspect discovered Claude config files",
+        argument_hint: None,
+    },
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,6 +94,8 @@ pub enum SlashCommand {
     Permissions { mode: Option<String> },
     Clear,
     Cost,
+    Resume { session_path: Option<String> },
+    Config,
     Unknown(String),
 }
 
@@ -109,6 +121,10 @@ impl SlashCommand {
             },
             "clear" => Self::Clear,
             "cost" => Self::Cost,
+            "resume" => Self::Resume {
+                session_path: parts.next().map(ToOwned::to_owned),
+            },
+            "config" => Self::Config,
             other => Self::Unknown(other.to_string()),
         })
     }
@@ -169,6 +185,8 @@ pub fn handle_slash_command(
         | SlashCommand::Permissions { .. }
         | SlashCommand::Clear
         | SlashCommand::Cost
+        | SlashCommand::Resume { .. }
+        | SlashCommand::Config
         | SlashCommand::Unknown(_) => None,
     }
 }
@@ -202,6 +220,13 @@ mod tests {
         );
         assert_eq!(SlashCommand::parse("/clear"), Some(SlashCommand::Clear));
         assert_eq!(SlashCommand::parse("/cost"), Some(SlashCommand::Cost));
+        assert_eq!(
+            SlashCommand::parse("/resume session.json"),
+            Some(SlashCommand::Resume {
+                session_path: Some("session.json".to_string()),
+            })
+        );
+        assert_eq!(SlashCommand::parse("/config"), Some(SlashCommand::Config));
     }
 
     #[test]
@@ -214,7 +239,9 @@ mod tests {
         assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
         assert!(help.contains("/clear"));
         assert!(help.contains("/cost"));
-        assert_eq!(slash_command_specs().len(), 7);
+        assert!(help.contains("/resume <session-path>"));
+        assert!(help.contains("/config"));
+        assert_eq!(slash_command_specs().len(), 9);
     }
 
     #[test]
@@ -272,5 +299,12 @@ mod tests {
         .is_none());
         assert!(handle_slash_command("/clear", &session, CompactionConfig::default()).is_none());
         assert!(handle_slash_command("/cost", &session, CompactionConfig::default()).is_none());
+        assert!(handle_slash_command(
+            "/resume session.json",
+            &session,
+            CompactionConfig::default()
+        )
+        .is_none());
+        assert!(handle_slash_command("/config", &session, CompactionConfig::default()).is_none());
     }
 }
