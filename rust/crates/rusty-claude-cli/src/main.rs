@@ -9,7 +9,7 @@ use std::io::{self, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use api::{
     resolve_startup_auth_source, AnthropicClient, AuthSource, ContentBlockDelta, InputContentBlock,
@@ -992,9 +992,10 @@ impl LiveCli {
         permission_mode: PermissionMode,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let system_prompt = build_system_prompt()?;
-        let session = create_managed_session_handle()?;
+        let session_state = Session::new();
+        let session = create_managed_session_handle(&session_state.session_id)?;
         let runtime = build_runtime(
-            Session::new(),
+            session_state.with_persistence_path(session.path.clone()),
             model.clone(),
             system_prompt.clone(),
             enable_tools,
@@ -1297,9 +1298,10 @@ impl LiveCli {
             return Ok(false);
         }
 
-        self.session = create_managed_session_handle()?;
+        let session_state = Session::new();
+        self.session = create_managed_session_handle(&session_state.session_id)?;
         self.runtime = build_runtime(
-            Session::new(),
+            session_state.with_persistence_path(self.session.path.clone()),
             self.model.clone(),
             self.system_prompt.clone(),
             true,
@@ -1333,6 +1335,7 @@ impl LiveCli {
         let handle = resolve_session_reference(&session_ref)?;
         let session = Session::load_from_path(&handle.path)?;
         let message_count = session.messages.len();
+        let session_id = session.session_id.clone();
         self.runtime = build_runtime(
             session,
             self.model.clone(),
@@ -1342,7 +1345,10 @@ impl LiveCli {
             self.allowed_tools.clone(),
             self.permission_mode,
         )?;
-        self.session = handle;
+        self.session = SessionHandle {
+            id: session_id,
+            path: handle.path,
+        };
         println!(
             "{}",
             format_resume_report(
@@ -1405,6 +1411,7 @@ impl LiveCli {
                 let handle = resolve_session_reference(target)?;
                 let session = Session::load_from_path(&handle.path)?;
                 let message_count = session.messages.len();
+                let session_id = session.session_id.clone();
                 self.runtime = build_runtime(
                     session,
                     self.model.clone(),
@@ -1414,7 +1421,10 @@ impl LiveCli {
                     self.allowed_tools.clone(),
                     self.permission_mode,
                 )?;
-                self.session = handle;
+                self.session = SessionHandle {
+                    id: session_id,
+                    path: handle.path,
+                };
                 println!(
                     "Session switched\n  Active session   {}\n  File             {}\n  Messages         {}",
                     self.session.id,
@@ -1457,18 +1467,12 @@ fn sessions_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(path)
 }
 
-fn create_managed_session_handle() -> Result<SessionHandle, Box<dyn std::error::Error>> {
-    let id = generate_session_id();
+fn create_managed_session_handle(
+    session_id: &str,
+) -> Result<SessionHandle, Box<dyn std::error::Error>> {
+    let id = session_id.to_string();
     let path = sessions_dir()?.join(format!("{id}.json"));
     Ok(SessionHandle { id, path })
-}
-
-fn generate_session_id() -> String {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or_default();
-    format!("session-{millis}")
 }
 
 fn resolve_session_reference(reference: &str) -> Result<SessionHandle, Box<dyn std::error::Error>> {
@@ -1504,14 +1508,17 @@ fn list_managed_sessions() -> Result<Vec<ManagedSessionSummary>, Box<dyn std::er
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .map(|duration| duration.as_secs())
             .unwrap_or_default();
-        let message_count = Session::load_from_path(&path)
-            .map(|session| session.messages.len())
-            .unwrap_or_default();
-        let id = path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let (id, message_count) = Session::load_from_path(&path)
+            .map(|session| (session.session_id, session.messages.len()))
+            .unwrap_or_else(|_| {
+                (
+                    path.file_stem()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("unknown")
+                        .to_string(),
+                    0,
+                )
+            });
         sessions.push(ManagedSessionSummary {
             id,
             path,

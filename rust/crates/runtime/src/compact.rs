@@ -99,13 +99,14 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
     }];
     compacted_messages.extend(preserved);
 
+    let mut compacted_session = session.clone();
+    compacted_session.messages = compacted_messages;
+    compacted_session.record_compaction(summary.clone(), removed.len());
+
     CompactionResult {
         summary,
         formatted_summary,
-        compacted_session: Session {
-            version: session.version,
-            messages: compacted_messages,
-        },
+        compacted_session,
         removed_message_count: removed.len(),
     }
 }
@@ -390,10 +391,8 @@ mod tests {
 
     #[test]
     fn leaves_small_sessions_unchanged() {
-        let session = Session {
-            version: 1,
-            messages: vec![ConversationMessage::user_text("hello")],
-        };
+        let mut session = Session::new();
+        session.messages = vec![ConversationMessage::user_text("hello")];
 
         let result = compact_session(&session, CompactionConfig::default());
         assert_eq!(result.removed_message_count, 0);
@@ -404,23 +403,21 @@ mod tests {
 
     #[test]
     fn compacts_older_messages_into_a_system_summary() {
-        let session = Session {
-            version: 1,
-            messages: vec![
-                ConversationMessage::user_text("one ".repeat(200)),
-                ConversationMessage::assistant(vec![ContentBlock::Text {
-                    text: "two ".repeat(200),
-                }]),
-                ConversationMessage::tool_result("1", "bash", "ok ".repeat(200), false),
-                ConversationMessage {
-                    role: MessageRole::Assistant,
-                    blocks: vec![ContentBlock::Text {
-                        text: "recent".to_string(),
-                    }],
-                    usage: None,
-                },
-            ],
-        };
+        let mut session = Session::new();
+        session.messages = vec![
+            ConversationMessage::user_text("one ".repeat(200)),
+            ConversationMessage::assistant(vec![ContentBlock::Text {
+                text: "two ".repeat(200),
+            }]),
+            ConversationMessage::tool_result("1", "bash", "ok ".repeat(200), false),
+            ConversationMessage {
+                role: MessageRole::Assistant,
+                blocks: vec![ContentBlock::Text {
+                    text: "recent".to_string(),
+                }],
+                usage: None,
+            },
+        ];
 
         let result = compact_session(
             &session,

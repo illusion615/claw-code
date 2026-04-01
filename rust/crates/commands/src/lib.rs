@@ -392,19 +392,17 @@ mod tests {
 
     #[test]
     fn compacts_sessions_via_slash_command() {
-        let session = Session {
-            version: 1,
-            messages: vec![
-                ConversationMessage::user_text("a ".repeat(200)),
-                ConversationMessage::assistant(vec![ContentBlock::Text {
-                    text: "b ".repeat(200),
-                }]),
-                ConversationMessage::tool_result("1", "bash", "ok ".repeat(200), false),
-                ConversationMessage::assistant(vec![ContentBlock::Text {
-                    text: "recent".to_string(),
-                }]),
-            ],
-        };
+        let mut session = Session::new();
+        session.messages = vec![
+            ConversationMessage::user_text("a ".repeat(200)),
+            ConversationMessage::assistant(vec![ContentBlock::Text {
+                text: "b ".repeat(200),
+            }]),
+            ConversationMessage::tool_result("1", "bash", "ok ".repeat(200), false),
+            ConversationMessage::assistant(vec![ContentBlock::Text {
+                text: "recent".to_string(),
+            }]),
+        ];
 
         let result = handle_slash_command(
             "/compact",

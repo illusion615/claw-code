@@ -156,8 +156,8 @@ where
         mut prompter: Option<&mut dyn PermissionPrompter>,
     ) -> Result<TurnSummary, RuntimeError> {
         self.session
-            .messages
-            .push(ConversationMessage::user_text(user_input.into()));
+            .push_user_text(user_input.into())
+            .map_err(|error| RuntimeError::new(error.to_string()))?;
 
         let mut assistant_messages = Vec::new();
         let mut tool_results = Vec::new();
@@ -191,7 +191,9 @@ where
                 })
                 .collect::<Vec<_>>();
 
-            self.session.messages.push(assistant_message.clone());
+            self.session
+                .push_message(assistant_message.clone())
+                .map_err(|error| RuntimeError::new(error.to_string()))?;
             assistant_messages.push(assistant_message);
 
             if pending_tool_uses.is_empty() {
@@ -249,7 +251,9 @@ where
                         ConversationMessage::tool_result(tool_use_id, tool_name, reason, true)
                     }
                 };
-                self.session.messages.push(result_message.clone());
+                self.session
+                    .push_message(result_message.clone())
+                    .map_err(|error| RuntimeError::new(error.to_string()))?;
                 tool_results.push(result_message);
             }
         }
@@ -408,7 +412,9 @@ mod tests {
     use crate::prompt::{ProjectContext, SystemPromptBuilder};
     use crate::session::{ContentBlock, MessageRole, Session};
     use crate::usage::TokenUsage;
+    use std::fs;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct ScriptedApiClient {
         call_count: usize,
@@ -787,6 +793,57 @@ mod tests {
             result.compacted_session.messages[0].role,
             MessageRole::System
         );
+        assert_eq!(
+            result.compacted_session.session_id,
+            runtime.session().session_id
+        );
+        assert!(result.compacted_session.compaction.is_some());
+    }
+
+    #[test]
+    fn persists_conversation_turn_messages_to_jsonl_session() {
+        struct SimpleApi;
+        impl ApiClient for SimpleApi {
+            fn stream(
+                &mut self,
+                _request: ApiRequest,
+            ) -> Result<Vec<AssistantEvent>, RuntimeError> {
+                Ok(vec![
+                    AssistantEvent::TextDelta("done".to_string()),
+                    AssistantEvent::MessageStop,
+                ])
+            }
+        }
+
+        let path = temp_session_path("persisted-turn");
+        let session = Session::new().with_persistence_path(path.clone());
+        let mut runtime = ConversationRuntime::new(
+            session,
+            SimpleApi,
+            StaticToolExecutor::new(),
+            PermissionPolicy::new(PermissionMode::DangerFullAccess),
+            vec!["system".to_string()],
+        );
+
+        runtime
+            .run_turn("persist this turn", None)
+            .expect("turn should succeed");
+
+        let restored = Session::load_from_path(&path).expect("persisted session should reload");
+        fs::remove_file(&path).expect("temp session file should be removable");
+
+        assert_eq!(restored.messages.len(), 2);
+        assert_eq!(restored.messages[0].role, MessageRole::User);
+        assert_eq!(restored.messages[1].role, MessageRole::Assistant);
+        assert_eq!(restored.session_id, runtime.session().session_id);
+    }
+
+    fn temp_session_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("runtime-conversation-{label}-{nanos}.json"))
     }
 
     #[cfg(windows)]

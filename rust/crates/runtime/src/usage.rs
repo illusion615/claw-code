@@ -286,21 +286,19 @@ mod tests {
 
     #[test]
     fn reconstructs_usage_from_session_messages() {
-        let session = Session {
-            version: 1,
-            messages: vec![ConversationMessage {
-                role: MessageRole::Assistant,
-                blocks: vec![ContentBlock::Text {
-                    text: "done".to_string(),
-                }],
-                usage: Some(TokenUsage {
-                    input_tokens: 5,
-                    output_tokens: 2,
-                    cache_creation_input_tokens: 1,
-                    cache_read_input_tokens: 0,
-                }),
+        let mut session = Session::new();
+        session.messages = vec![ConversationMessage {
+            role: MessageRole::Assistant,
+            blocks: vec![ContentBlock::Text {
+                text: "done".to_string(),
             }],
-        };
+            usage: Some(TokenUsage {
+                input_tokens: 5,
+                output_tokens: 2,
+                cache_creation_input_tokens: 1,
+                cache_read_input_tokens: 0,
+            }),
+        }];
 
         let tracker = UsageTracker::from_session(&session);
         assert_eq!(tracker.turns(), 1);
