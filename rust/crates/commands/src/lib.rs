@@ -997,6 +997,48 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         argument_hint: Some("<count> <prompt>"),
         resume_supported: false,
     },
+    SlashCommandSpec {
+        name: "agent",
+        aliases: &[],
+        summary: "Manage sub-agents and spawned sessions",
+        argument_hint: Some("[list|spawn|kill]"),
+        resume_supported: true,
+    },
+    SlashCommandSpec {
+        name: "subagent",
+        aliases: &[],
+        summary: "Control active subagent execution",
+        argument_hint: Some("[list|steer <target> <msg>|kill <id>]"),
+        resume_supported: true,
+    },
+    SlashCommandSpec {
+        name: "reasoning",
+        aliases: &[],
+        summary: "Toggle extended reasoning mode",
+        argument_hint: Some("[on|off|stream]"),
+        resume_supported: true,
+    },
+    SlashCommandSpec {
+        name: "budget",
+        aliases: &[],
+        summary: "Show or set token budget limits",
+        argument_hint: Some("[show|set <limit>]"),
+        resume_supported: true,
+    },
+    SlashCommandSpec {
+        name: "rate-limit",
+        aliases: &[],
+        summary: "Configure API rate limiting",
+        argument_hint: Some("[status|set <rpm>]"),
+        resume_supported: true,
+    },
+    SlashCommandSpec {
+        name: "metrics",
+        aliases: &[],
+        summary: "Show performance and usage metrics",
+        argument_hint: None,
+        resume_supported: true,
+    },
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3643,7 +3685,7 @@ mod tests {
         assert!(help.contains("aliases: /plugins, /marketplace"));
         assert!(help.contains("/agents [list|help]"));
         assert!(help.contains("/skills [list|install <path>|help]"));
-        assert_eq!(slash_command_specs().len(), 135);
+        assert_eq!(slash_command_specs().len(), 141);
         assert!(resume_supported_slash_commands().len() >= 39);
     }
 
