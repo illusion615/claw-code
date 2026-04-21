@@ -5,6 +5,7 @@ use crate::error::ApiError;
 use crate::types::{MessageRequest, MessageResponse};
 
 pub mod anthropic;
+pub mod copilot;
 pub mod openai_compat;
 
 #[allow(dead_code)]
@@ -28,6 +29,7 @@ pub trait Provider {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
     Anthropic,
+    Copilot,
     Xai,
     OpenAi,
 }
@@ -135,7 +137,7 @@ pub fn resolve_model_alias(model: &str) -> String {
                     "grok-2" => "grok-2",
                     _ => trimmed,
                 },
-                ProviderKind::OpenAi => trimmed,
+                ProviderKind::Copilot | ProviderKind::OpenAi => trimmed,
             })
         })
         .map_or_else(|| trimmed.to_string(), ToOwned::to_owned)
@@ -165,6 +167,10 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
 
 #[must_use]
 pub fn detect_provider_kind(model: &str) -> ProviderKind {
+    // Explicit provider override via env var
+    if std::env::var("CLAW_PROVIDER").ok().as_deref() == Some("copilot") {
+        return ProviderKind::Copilot;
+    }
     if let Some(metadata) = metadata_for_model(model) {
         return metadata.provider;
     }
@@ -176,6 +182,10 @@ pub fn detect_provider_kind(model: &str) -> ProviderKind {
     }
     if openai_compat::has_api_key("XAI_API_KEY") {
         return ProviderKind::Xai;
+    }
+    // Fall back to Copilot if credentials are available
+    if copilot::has_copilot_credentials() {
+        return ProviderKind::Copilot;
     }
     ProviderKind::Anthropic
 }

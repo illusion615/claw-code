@@ -121,6 +121,7 @@ pub struct AnthropicClient {
     session_tracer: Option<SessionTracer>,
     prompt_cache: Option<PromptCache>,
     last_prompt_cache_record: Arc<Mutex<Option<PromptCacheRecord>>>,
+    extra_headers: Vec<(String, String)>,
 }
 
 impl AnthropicClient {
@@ -137,6 +138,7 @@ impl AnthropicClient {
             session_tracer: None,
             prompt_cache: None,
             last_prompt_cache_record: Arc::new(Mutex::new(None)),
+            extra_headers: Vec::new(),
         }
     }
 
@@ -153,6 +155,7 @@ impl AnthropicClient {
             session_tracer: None,
             prompt_cache: None,
             last_prompt_cache_record: Arc::new(Mutex::new(None)),
+            extra_headers: Vec::new(),
         }
     }
 
@@ -229,6 +232,12 @@ impl AnthropicClient {
     }
 
     #[must_use]
+    pub fn with_no_betas(mut self) -> Self {
+        self.request_profile.betas.clear();
+        self
+    }
+
+    #[must_use]
     pub fn with_extra_body_param(mut self, key: impl Into<String>, value: Value) -> Self {
         self.request_profile = self.request_profile.with_extra_body(key, value);
         self
@@ -271,6 +280,12 @@ impl AnthropicClient {
     #[must_use]
     pub fn with_request_profile(mut self, request_profile: AnthropicRequestProfile) -> Self {
         self.request_profile = request_profile;
+        self
+    }
+
+    #[must_use]
+    pub fn with_extra_headers(mut self, headers: Vec<(String, String)>) -> Self {
+        self.extra_headers = headers;
         self
     }
 
@@ -469,6 +484,9 @@ impl AnthropicClient {
             .header("content-type", "application/json");
         let mut request_builder = self.auth.apply(request_builder);
         for (header_name, header_value) in self.request_profile.header_pairs() {
+            request_builder = request_builder.header(header_name, header_value);
+        }
+        for (header_name, header_value) in &self.extra_headers {
             request_builder = request_builder.header(header_name, header_value);
         }
 

@@ -24,9 +24,10 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use api::{
-    resolve_startup_auth_source, AnthropicClient, AuthSource, ContentBlockDelta, InputContentBlock,
-    InputMessage, MessageRequest, MessageResponse, OutputContentBlock, PromptCache,
-    StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
+    create_copilot_client, resolve_startup_auth_source, AnthropicClient, AuthSource,
+    ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest, MessageResponse,
+    OutputContentBlock, PromptCache, StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition,
+    ToolResultContentBlock,
 };
 
 use commands::{
@@ -84,6 +85,7 @@ const CLI_OPTION_SUGGESTIONS: &[&str] = &[
     "--resume",
     "--print",
     "-p",
+    "--provider",
 ];
 
 type AllowedToolSet = BTreeSet<String>;
@@ -106,6 +108,20 @@ Run `claw --help` for usage."
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
+
+    // Extract --provider before parse_args to set CLAW_PROVIDER env var early.
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--provider" {
+            if let Some(value) = args.get(i + 1) {
+                env::set_var("CLAW_PROVIDER", value);
+            }
+            break;
+        } else if let Some(value) = arg.strip_prefix("--provider=") {
+            env::set_var("CLAW_PROVIDER", value);
+            break;
+        }
+    }
+
     match parse_args(&args)? {
         CliAction::DumpManifests => dump_manifests(),
         CliAction::BootstrapPlan => print_bootstrap_plan(),
@@ -264,6 +280,17 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             }
             "--dangerously-skip-permissions" => {
                 permission_mode_override = Some(PermissionMode::DangerFullAccess);
+                index += 1;
+            }
+            "--provider" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --provider".to_string())?;
+                // Ignored here; extracted separately in run() before parse_args
+                index += 2;
+            }
+            flag if flag.starts_with("--provider=") => {
+                // Ignored here; extracted separately in run() before parse_args
                 index += 1;
             }
             "-p" => {
@@ -4495,11 +4522,18 @@ impl AnthropicRuntimeClient {
         tool_registry: GlobalToolRegistry,
         progress_reporter: Option<InternalPromptProgressReporter>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            runtime: tokio::runtime::Runtime::new()?,
-            client: AnthropicClient::from_auth(resolve_cli_auth_source()?)
+        let provider = api::detect_provider_kind(&model);
+        let client = match provider {
+            api::ProviderKind::Copilot => create_copilot_client()
+                .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?
+                .with_prompt_cache(PromptCache::new(session_id)),
+            _ => AnthropicClient::from_auth(resolve_cli_auth_source()?)
                 .with_base_url(api::read_base_url())
                 .with_prompt_cache(PromptCache::new(session_id)),
+        };
+        Ok(Self {
+            runtime: tokio::runtime::Runtime::new()?,
+            client,
             model,
             enable_tools,
             emit_output,
@@ -5577,6 +5611,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         "  --dangerously-skip-permissions  Skip all permission checks"
     )?;
     writeln!(out, "  --allowedTools TOOLS       Restrict enabled tools (repeatable; comma-separated aliases supported)")?;
+    writeln!(
+        out,
+        "  --provider PROVIDER        Override provider: copilot, anthropic (auto-detected by default)"
+    )?;
     writeln!(
         out,
         "  --version, -V              Print version and build information locally"

@@ -149,11 +149,13 @@ pub enum OutputContentBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
+    #[serde(default)]
     pub input_tokens: u32,
     #[serde(default)]
     pub cache_creation_input_tokens: u32,
     #[serde(default)]
     pub cache_read_input_tokens: u32,
+    #[serde(default)]
     pub output_tokens: u32,
 }
 

@@ -1,6 +1,7 @@
 use crate::error::ApiError;
 use crate::prompt_cache::{PromptCache, PromptCacheRecord, PromptCacheStats};
 use crate::providers::anthropic::{self, AnthropicClient, AuthSource};
+use crate::providers::copilot;
 use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConfig};
 use crate::providers::{self, ProviderKind};
 use crate::types::{MessageRequest, MessageResponse, StreamEvent};
@@ -28,6 +29,7 @@ impl ProviderClient {
                 Some(auth) => AnthropicClient::from_auth(auth),
                 None => AnthropicClient::from_env()?,
             })),
+            ProviderKind::Copilot => Ok(Self::Anthropic(copilot::create_copilot_client()?)),
             ProviderKind::Xai => Ok(Self::Xai(OpenAiCompatClient::from_env(
                 OpenAiCompatConfig::xai(),
             )?)),
